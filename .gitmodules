@@ -1,0 +1,3 @@
+[submodule "vkEngine"]
+	path = vkEngine
+	url = https://github.com/Al0ha0e/vkEngine.git
