@@ -1,0 +1,91 @@
+#version 450
+#extension GL_ARB_separate_shader_objects: enable
+#extension GL_GOOGLE_include_directive : enable
+
+#include "terrain_util.h"
+
+layout(std430, set = 0, binding = 0) buffer GridInfoSSBO {
+    ivec3 GridCenter[];
+} ;
+layout (std430, set = 0, binding = 1) buffer EdgeInfoSSBO {
+    uint EdgeInfo[];
+} ;
+layout (std430, set = 0, binding = 2) buffer VertInfoSSBO {
+    uint VertInfo[];
+} ;
+
+layout (local_size_x = 16, local_size_y = 16, local_size_z = 4) in;
+void main ()
+{
+    uint level = gl_WorkGroupID.x / gridStorageSize;
+    uvec3 block_pos,cell_pos,global_cell_pos;
+    block_pos.y = gl_WorkGroupID.y;
+    block_pos.z = gl_WorkGroupID.z >> 2;
+    block_pos.x = gl_WorkGroupID.x - level * gridStorageSize;
+    cell_pos.xy = gl_LocalInvocationID.xy;
+    cell_pos.z = ((gl_WorkGroupID.z & 3) << 2) + gl_LocalInvocationID.z;
+    global_cell_pos = (block_pos << 4) + cell_pos;
+    uvec3 offset = GridCenter[level] & 3;
+    uint eidx = GetEdgeIdx(level, 0, block_pos, cell_pos, offset);
+    uint vidx = GetVertIdx(level, block_pos, cell_pos, offset);
+    uint vinfo = VertInfo[vidx];
+    uint vtype = vinfo & 0x3ff;
+
+    const ivec3 dirs[7] = {
+        ivec3(0,0,1),
+        ivec3(0,1,0),
+        ivec3(0,1,1),
+        ivec3(1,0,0),
+        ivec3(1,0,1),
+        ivec3(1,1,0),
+        ivec3(1,1,1),
+    };
+    
+    if(all(lessThan(block_pos, uvec3(gridRenderSize)))){
+        uint diff = 0;
+        uint mixedinfo = (vinfo & (1 << 30)) > 0 ? vtype : 0;
+
+#pragma unroll
+        for(int i = 0; i < 7; i++){
+            uint vidx1 = GetVertIdx(level, global_cell_pos + dirs[i], offset);
+            uint vinfo1 = VertInfo[vidx1];
+            uint vtype1 = vinfo1 & 0x3ff;
+            if((vinfo1 & (1 << 30)) > 0){
+                mixedinfo |= vtype1;
+                if(mixedinfo != vtype1){
+                    diff = 1;
+                    break;
+                }
+            }
+        }
+        barrier();
+        VertInfo[vidx] = vinfo | (diff << 31);
+    }
+
+    barrier();
+
+    if(all(greaterThan(global_cell_pos, uvec3(0)))){
+        uint diff = 0;
+        diff |= VertInfo[GetVertIdx(level, global_cell_pos, offset)];
+        diff |= VertInfo[GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z), offset)];
+        diff |= VertInfo[GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z-1), offset)];
+        diff |= VertInfo[GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y, global_cell_pos.z-1), offset)];
+        EdgeInfo[eidx] |= ((diff >> 31) & 1) << 4;
+
+        eidx += blockSize3;
+        diff = 0;
+        diff |= VertInfo[GetVertIdx(level, global_cell_pos, offset)];
+        diff |= VertInfo[GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y, global_cell_pos.z-1), offset)];
+        diff |= VertInfo[GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z-1), offset)];
+        diff |= VertInfo[GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z), offset)];
+        EdgeInfo[eidx] |= ((diff >> 31) & 1) << 4;
+
+        eidx += blockSize3;
+        diff = 0;
+        diff |= VertInfo[GetVertIdx(level, global_cell_pos, offset)];
+        diff |= VertInfo[GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z), offset)];
+        diff |= VertInfo[GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y-1, global_cell_pos.z), offset)];
+        diff |= VertInfo[GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z), offset)];
+        EdgeInfo[eidx] |= ((diff >> 31) & 1) << 4;
+    }
+}

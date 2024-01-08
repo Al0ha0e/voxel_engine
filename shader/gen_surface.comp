@@ -1,0 +1,530 @@
+#version 450
+#extension GL_EXT_shader_atomic_int64 : enable
+#extension GL_ARB_separate_shader_objects: enable
+#extension GL_ARB_gpu_shader_int64 : enable
+#extension GL_GOOGLE_include_directive : enable
+
+#include "terrain_util.h"
+
+layout(std430, set = 0, binding = 0) buffer GridInfoSSBO {
+    ivec3 GridCenter[];
+} ;
+
+layout (std430, set = 0, binding = 1) buffer GenerationInfoSSBO {
+    int LevelNum;
+} ;
+
+layout (std430, set = 0, binding = 2) buffer EdgeInfoSSBO {
+    uint EdgeInfo[];
+} ;
+
+layout (std430, set = 0, binding = 3) buffer GridSubMinSSBO {
+    ivec3 GridSubMin[];
+} ;
+
+layout (std430, set = 0, binding = 4) buffer LevelCounterSSBO{
+    uint64_t LevelCounter[];
+};
+
+layout (std430, set = 0, binding = 5) buffer ContourSSBO {
+    uint Contour[];
+} ;
+
+
+layout (local_size_x = 16, local_size_y = 16, local_size_z = 4) in;
+void main ()
+{
+    //int LevelNum = GenerationInfo.LevelNum;
+    uint level = gl_WorkGroupID.x / gridStorageSize;
+    uvec3 block_pos,cell_pos,global_cell_pos;
+    block_pos.y = gl_WorkGroupID.y;
+    block_pos.z = gl_WorkGroupID.z >> 2;
+    block_pos.x = gl_WorkGroupID.x - level * gridStorageSize;
+    cell_pos.xy = gl_LocalInvocationID.xy;
+    cell_pos.z = ((gl_WorkGroupID.z & 3) << 2) + gl_LocalInvocationID.z;
+    global_cell_pos = (block_pos << 4) + cell_pos;
+    uvec3 offset = GridCenter[level] & 3;
+    uvec3 upoffset;
+    if(level < LevelNum - 1)
+        upoffset = GridCenter[level + 1] & 3;
+
+    bool not_masked = true;
+    bvec3 dim_not_masked = bvec3(1);
+
+    if(level > 0){
+        // uvec3 submin = uvec3(offset.x & 1 ? 16 : 8, offset.y & 1 ? 16 : 8, offset.z & 1 ? 16 : 8);
+        uvec3 submin = GridSubMin[level];
+        uvec3 submax = submin + uvec3(8,8,8) * gridRenderSize; 
+        not_masked = any(greaterThan(submin, global_cell_pos)) || any(greaterThan(global_cell_pos,submax));
+        dim_not_masked = equal(global_cell_pos, submax);
+    }
+
+    uvec3 has = uvec3(0,0,0);
+    uvec3 inv = uvec3(0,0,0);
+    uint contour[12];
+    uint idx = GetEdgeIdx(level, 0, block_pos, cell_pos, offset);
+
+    uvec3 upmin = uvec3(0,0,0);
+    if(level < LevelNum - 1){
+        // upmin = uvec3(upoffset.x & 1 ? 16 : 8, upoffset.y & 1 ? 16 : 8, upoffset.z & 1 ? 16 : 8);
+        upmin = GridSubMin[level + 1];
+    }
+
+    if(all(lessThan(block_pos, uvec3(gridRenderSize)))){
+        uint info;
+        //X
+        if(not_masked || dim_not_masked.x){
+            info = EdgeInfo[idx];
+            if((info & 1) > 0)
+            {
+                if(global_cell_pos.y == 0){
+                    if(global_cell_pos.z == 0){
+                        if(level < LevelNum - 1){
+                            has.x = 2;
+                            contour[0] = GetVertIdx(level, global_cell_pos, offset);
+                            contour[1] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z)>>1) + upmin, upoffset);
+                            contour[2] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z-1)>>1) + upmin, upoffset);
+                            contour[3] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x, global_cell_pos.y, global_cell_pos.z-1)>>1) + upmin, upoffset);
+                        }else{
+                            has.x = 0;
+                        }    
+                    }else{
+                        if(level < LevelNum - 1){
+                            if((global_cell_pos.z & 1) > 0){
+                                has.x = 1;
+                                contour[0] = GetVertIdx(level, global_cell_pos, offset);
+                                contour[1] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z)>>1) + upmin, upoffset);
+                                // contour[6] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z-1)>>1) + upmin);
+                                contour[2] = GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y, global_cell_pos.z-1), offset);
+                            }else{
+                                has.x = 2;
+                                contour[0] = GetVertIdx(level, global_cell_pos, offset);
+                                contour[1] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z)>>1) + upmin, upoffset);
+                                contour[2] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z-1)>>1) + upmin, upoffset);
+                                contour[3] = GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y, global_cell_pos.z-1), offset);
+                            }
+                        }else{
+                            // has.x = 1;
+                            // contour[0] = GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y, global_cell_pos.z-1));
+                            // contour[1] = GetVertIdx(level, global_cell_pos);
+                            has.x = 0;
+                        }
+                    }
+                }else if(global_cell_pos.z == 0){
+                    if(level < LevelNum - 1){
+                        if((global_cell_pos.y & 1) > 0){
+                            has.x = 1;
+                            contour[0] = GetVertIdx(level, global_cell_pos, offset);
+                            contour[1] = GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z), offset);
+                            contour[2] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z-1) >> 1) + upmin, upoffset);
+                        }else{
+                            has.x = 2;
+                            contour[0] = GetVertIdx(level, global_cell_pos, offset);
+                            contour[1] = GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z), offset);
+                            contour[2] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z-1) >> 1) + upmin, upoffset);
+                            contour[3] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x, global_cell_pos.y, global_cell_pos.z-1)>>1) + upmin, upoffset);
+                        }
+                    }else{
+                        // has.x = 1;
+                        // contour[0] = GetVertIdx(level, global_cell_pos);
+                        // contour[1] = GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z));
+                        has.x = 0;
+                    }
+                }else{
+                    has.x = 2;
+                    contour[0] = GetVertIdx(level, global_cell_pos, offset);
+                    contour[1] = GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z), offset);
+                    contour[2] = GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z-1), offset);
+                    contour[3] = GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y, global_cell_pos.z-1), offset);
+                }
+
+                if(((info & (1<<3)) > 0) && (has.x > 0)){
+                    inv.x = 1;
+                    int tidx = has.x == 2 ? 3 : 2;
+                    uint t = contour[1];
+                    contour[1] = contour[tidx];
+                    contour[tidx] = t;
+                }
+            }
+        }
+
+        //Y
+        idx += blockSize3;
+        if(not_masked || dim_not_masked.y){
+            info = EdgeInfo[idx];
+            if((info & 1) > 0)
+            {
+                if(global_cell_pos.z == 0){
+                    if(global_cell_pos.x == 0){
+                        if(level < LevelNum - 1){
+                            has.y = 2;
+                            contour[4] = GetVertIdx(level, global_cell_pos, offset);
+                            contour[5] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x, global_cell_pos.y, global_cell_pos.z-1)>>1) + upmin, upoffset);
+                            contour[6] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z-1)>>1) + upmin, upoffset);
+                            contour[7] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z)>>1) + upmin, upoffset);
+                        }else{
+                            has.y = 0;
+                        }
+                    }else{
+                        if(level < LevelNum - 1){
+                            if((global_cell_pos.x & 1) > 0){
+                                has.y = 1;
+                                contour[4] = GetVertIdx(level, global_cell_pos, offset);
+                                contour[5] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x, global_cell_pos.y, global_cell_pos.z-1)>>1) + upmin, upoffset);
+                                // contour[6] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z-1)>>1) + upmin);
+                                contour[6] = GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z), offset);
+                            }else{
+                                has.y = 2;
+                                contour[4] = GetVertIdx(level, global_cell_pos, offset);
+                                contour[5] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x, global_cell_pos.y, global_cell_pos.z-1)>>1) + upmin, upoffset);
+                                contour[6] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z-1)>>1) + upmin, upoffset);
+                                contour[7] = GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z), offset);
+                            }
+                        }else{
+                            // has.y = 1;
+                            // contour[4] = GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z));
+                            // contour[5] = GetVertIdx(level, global_cell_pos);
+                            has.y = 0;
+                        }
+                    }
+                }else if(global_cell_pos.x == 0){
+                    if(level < LevelNum - 1){
+                        if((global_cell_pos.z & 1) > 0){
+                            has.y = 1;
+                            contour[4] = GetVertIdx(level, global_cell_pos, offset);
+                            contour[5] = GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y, global_cell_pos.z-1), offset);
+                            contour[6] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z-1) >> 1) + upmin, upoffset);
+                        }else{
+                            has.y = 2;
+                            contour[4] = GetVertIdx(level, global_cell_pos, offset);
+                            contour[5] = GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y, global_cell_pos.z-1), offset);
+                            contour[6] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z-1) >> 1) + upmin, upoffset);
+                            contour[7] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z)>>1) + upmin, upoffset);
+                        }
+                    }else{
+                        // has.y = 1;
+                        // contour[4] = GetVertIdx(level, global_cell_pos);
+                        // contour[5] = GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y, global_cell_pos.z-1));
+                        has.y = 0;
+                    }
+                }else{
+                    has.y = 2;
+                    contour[4] = GetVertIdx(level, global_cell_pos, offset);
+                    contour[5] = GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y, global_cell_pos.z-1), offset);
+                    contour[6] = GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z-1), offset);
+                    contour[7] = GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z), offset);
+                }
+
+                if(((info & (1<<3)) > 0)&& has.y > 0){
+                    inv.y = 1;
+                    int tidx = has.y == 2 ? 7 : 6;
+                    uint t = contour[5];
+                    contour[5] = contour[tidx];
+                    contour[tidx] = t;
+                }
+            }
+        }
+
+        //Z
+        idx += blockSize3;
+        if(not_masked || dim_not_masked.z){
+            info = EdgeInfo[idx];
+            if((info & 1) > 0)
+            {
+                if(global_cell_pos.x == 0){
+                    if(global_cell_pos.y == 0){
+                        if(level < LevelNum - 1){
+                            has.z = 2;
+                            contour[8] = GetVertIdx(level, global_cell_pos, offset);
+                            contour[9] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z)>>1) + upmin, upoffset);
+                            contour[10] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x-1, global_cell_pos.y-1, global_cell_pos.z)>>1) + upmin, upoffset);
+                            contour[11] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z)>>1) + upmin, upoffset);
+                        }else{
+                            has.z = 0;
+                        }
+                    }else{
+                        if(level < LevelNum - 1){
+                            if((global_cell_pos.y & 1) > 0){
+                                has.z = 1;
+                                contour[8] = GetVertIdx(level, global_cell_pos, offset);
+                                contour[9] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z)>>1) + upmin, upoffset);
+                                // contour[6] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z-1)>>1) + upmin);
+                                contour[10] = GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z), offset);
+                            }else{
+                                has.z = 2;
+                                contour[8] = GetVertIdx(level, global_cell_pos, offset);
+                                contour[9] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z)>>1) + upmin, upoffset);
+                                contour[10] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x-1, global_cell_pos.y-1, global_cell_pos.z)>>1) + upmin, upoffset);
+                                contour[11] = GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z), offset);
+                            }
+                        }else{
+                            // has.z = 1;
+                            // contour[8] = GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z));
+                            // contour[9] = GetVertIdx(level, global_cell_pos);
+                            has.z = 0;
+                        }
+                    }
+                }else if(global_cell_pos.y == 0){
+                    if(level < LevelNum - 1){
+                        if((global_cell_pos.x & 1) > 0){
+                            has.z = 1;
+                            contour[8] = GetVertIdx(level, global_cell_pos, offset);
+                            contour[9] = GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z), offset);
+                            contour[10] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x-1, global_cell_pos.y-1, global_cell_pos.z) >> 1) + upmin, upoffset);
+                        }else{
+                            has.z = 2;
+                            contour[8] = GetVertIdx(level, global_cell_pos, offset);
+                            contour[9] = GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z), offset);
+                            contour[10] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x-1, global_cell_pos.y-1, global_cell_pos.z) >> 1) + upmin, upoffset);
+                            contour[11] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z)>>1) + upmin, upoffset);
+                        }
+                    }else{
+                        // has.z = 1;
+                        // contour[8] = GetVertIdx(level, global_cell_pos);
+                        // contour[9] = GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z));
+                        has.z = 0;
+                    }
+                }else{
+                    has.z = 2;
+                    contour[8] = GetVertIdx(level, global_cell_pos, offset);
+                    contour[9] = GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z), offset);
+                    contour[10] = GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y-1, global_cell_pos.z), offset);
+                    contour[11] = GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z), offset);
+                }
+
+                if(((info & (1<<3)) > 0)&& has.z > 0){
+                    inv.z = 1;
+                    int tidx = has.z == 2 ? 11 : 10;
+                    uint t = contour[9];
+                    contour[9] = contour[tidx];
+                    contour[tidx] = t;
+                }
+            }
+        }
+    } else if(level < LevelNum - 1){
+        uint info;
+        if(global_cell_pos.x < (gridRenderSize << 4)){
+            info = EdgeInfo[idx];
+            if((info & 1) > 0){
+                if((global_cell_pos.y == gridRenderSize << 4) && (global_cell_pos.z <= gridRenderSize << 4)){
+                    if(global_cell_pos.z == gridRenderSize << 4){
+                        has.x = 2;
+                        contour[0] = GetVertIdx(level + 1, (global_cell_pos >> 1) + upmin, upoffset);
+                        contour[1] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z)>>1) + upmin, upoffset);
+                        contour[2] = GetVertIdx(level,      uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z-1), offset);
+                        contour[3] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x, global_cell_pos.y, global_cell_pos.z-1)>>1) + upmin, upoffset);
+                    }else{
+                        if((global_cell_pos.z & 1) > 0){
+                            has.x = 1;
+                            contour[0] = GetVertIdx(level + 1, (global_cell_pos>>1) + upmin, upoffset);
+                            contour[1] = GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z), offset);
+                            contour[2] = GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z-1), offset);
+                            // contour[6] = GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z));
+                        }else{
+                            has.x = 2;
+                            contour[0] = GetVertIdx(level + 1, (global_cell_pos>>1) + upmin, upoffset);
+                            contour[1] = GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z), offset);
+                            contour[2] = global_cell_pos.z == 0 ? 
+                                GetVertIdx(level + 1, (uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z-1)>>1) + upmin, upoffset) : 
+                                GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z-1), offset);
+                            contour[3] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x, global_cell_pos.y, global_cell_pos.z-1)>>1) + upmin, upoffset);
+                        }
+                    }
+                }else if((global_cell_pos.z == gridRenderSize << 4) && (global_cell_pos.y < gridRenderSize << 4)){
+                    if((global_cell_pos.y & 1) > 0){
+                        has.x = 1;
+                        contour[0] = GetVertIdx(level + 1, (global_cell_pos>>1) + upmin, upoffset);
+                        contour[1] = GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z-1), offset);
+                        contour[2] = GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y, global_cell_pos.z-1), offset);
+                    }else{
+                        has.x = 2;
+                        contour[0] = GetVertIdx(level + 1, (global_cell_pos>>1) + upmin, upoffset);
+                        contour[1] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z)>>1) + upmin, upoffset);
+                        contour[2] = global_cell_pos.y == 0 ? 
+                            GetVertIdx(level + 1, (uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z-1) >> 1) + upmin, upoffset) : 
+                            GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z-1), offset);
+                        contour[3] = GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y, global_cell_pos.z-1), offset);
+                    }
+                }else{
+                    has.x = 0;
+                }
+
+                if(((info & (1<<3)) > 0) && has.x > 0){
+                    inv.x = 1;
+                    int tidx = has.x == 2 ? 3 : 2;
+                    uint t = contour[1];
+                    contour[1] = contour[tidx];
+                    contour[tidx] = t;
+                }
+            }
+        }    
+
+        idx += blockSize3;
+        if(global_cell_pos.y < (gridRenderSize << 4)){
+            info = EdgeInfo[idx];
+            if((info & 1) > 0){
+                if((global_cell_pos.z == gridRenderSize << 4) && (global_cell_pos.x <= gridRenderSize << 4)){
+                    if(global_cell_pos.x == gridRenderSize << 4){
+                        has.y = 2;
+                        contour[4] = GetVertIdx(level + 1, (global_cell_pos >> 1) + upmin, upoffset);
+                        contour[5] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x, global_cell_pos.y, global_cell_pos.z-1)>>1) + upmin, upoffset);
+                        contour[6] = GetVertIdx(level,      uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z-1), offset);
+                        contour[7] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z)>>1) + upmin, upoffset);
+                    }else{
+                        if((global_cell_pos.x & 1) > 0){
+                            has.y = 1;
+                            contour[4] = GetVertIdx(level + 1, (global_cell_pos>>1) + upmin, upoffset);
+                            contour[5] = GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y, global_cell_pos.z-1), offset);
+                            contour[6] = GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z-1), offset);
+                            // contour[6] = GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z));
+                        }else{
+                            has.y = 2;
+                            contour[4] = GetVertIdx(level + 1, (global_cell_pos>>1) + upmin, upoffset);
+                            contour[5] = GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y, global_cell_pos.z-1), offset);
+                            contour[6] = global_cell_pos.x == 0 ? 
+                                GetVertIdx(level + 1, (uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z-1)>>1) + upmin, upoffset) : 
+                                GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z-1), offset);
+                            contour[7] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z)>>1) + upmin, upoffset);
+                        }
+                    }
+                } else if((global_cell_pos.x == gridRenderSize << 4) && (global_cell_pos.z < gridRenderSize << 4)){
+                    if((global_cell_pos.z & 1) > 0){
+                        has.y = 1;
+                        contour[4] = GetVertIdx(level + 1, (global_cell_pos>>1) + upmin, upoffset);
+                        contour[5] = GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z-1), offset);
+                        contour[6] = GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z), offset);
+                    }else{
+                        has.y = 2;
+                        contour[4] = GetVertIdx(level + 1, (global_cell_pos>>1) + upmin, upoffset);
+                        contour[5] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x, global_cell_pos.y, global_cell_pos.z-1)>>1) + upmin, upoffset);
+                        contour[6] = global_cell_pos.z == 0 ? 
+                            GetVertIdx(level + 1, (uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z-1) >> 1) + upmin, upoffset) : 
+                            GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z-1), offset);
+                        contour[7] = GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z), offset);
+                    }
+                }else{
+                    has.y = 0;
+                }
+
+                if(((info & (1<<3)) > 0) && has.y > 0){
+                    inv.y = 1;
+                    int tidx = has.y == 2 ? 7 : 6;
+                    uint t = contour[5];
+                    contour[5] = contour[tidx];
+                    contour[tidx] = t;
+                }
+            }
+        }
+
+        idx += blockSize3;
+        if(global_cell_pos.z < (gridRenderSize << 4)){
+            info = EdgeInfo[idx];
+            if((info & 1) > 0){
+                if((global_cell_pos.x == gridRenderSize << 4) && (global_cell_pos.y <= gridRenderSize << 4)){
+                    if(global_cell_pos.y == gridRenderSize << 4){
+                        has.z = 2;
+                        contour[8] = GetVertIdx(level + 1, (global_cell_pos >> 1) + upmin, upoffset);
+                        contour[9] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z)>>1) + upmin, upoffset);
+                        contour[10] = GetVertIdx(level,      uvec3(global_cell_pos.x-1, global_cell_pos.y-1, global_cell_pos.z), offset);
+                        contour[11] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z)>>1) + upmin, upoffset);
+                    }else{
+                        if((global_cell_pos.y & 1) > 0){
+                            has.z = 1;
+                            contour[8] = GetVertIdx(level + 1, (global_cell_pos>>1) + upmin, upoffset);
+                            contour[9] = GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z), offset);
+                            contour[10] = GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y-1, global_cell_pos.z), offset);
+                            // contour[6] = GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z));
+                        }else{
+                            has.z = 2;
+                            contour[8] = GetVertIdx(level + 1, (global_cell_pos>>1) + upmin, upoffset);
+                            contour[9] = GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z), offset);
+                            contour[10] = global_cell_pos.y == 0 ? 
+                                GetVertIdx(level + 1, (uvec3(global_cell_pos.x-1, global_cell_pos.y-1, global_cell_pos.z)>>1) + upmin, upoffset) : 
+                                GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y-1, global_cell_pos.z), offset);
+                            contour[11] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z)>>1) + upmin, upoffset);
+                        }
+                    }
+                }else if((global_cell_pos.y == gridRenderSize << 4) && (global_cell_pos.x < gridRenderSize << 4)){
+                    if((global_cell_pos.x & 1) > 0){
+                        has.z = 1;
+                        contour[8] = GetVertIdx(level + 1, (global_cell_pos>>1) + upmin, upoffset);
+                        contour[9] = GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y-1, global_cell_pos.z), offset);
+                        contour[10] = GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z), offset);
+                    }else{
+                        has.z = 2;
+                        contour[8] = GetVertIdx(level + 1, (global_cell_pos>>1) + upmin, upoffset);
+                        contour[9] = GetVertIdx(level + 1, (uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z)>>1) + upmin, upoffset);
+                        contour[10] = global_cell_pos.x == 0 ? 
+                            GetVertIdx(level + 1, (uvec3(global_cell_pos.x-1, global_cell_pos.y-1, global_cell_pos.z) >> 1) + upmin, upoffset) : 
+                            GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y-1, global_cell_pos.z), offset);
+                        contour[11] = GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z), offset);
+                    }
+                }else{
+                    has.z = 0;
+                }
+
+                if(((info & (1<<3)) > 0) && has.z > 0){
+                    inv.z = 1;
+                    int tidx = has.z == 2 ? 11 : 10;
+                    uint t = contour[9];
+                    contour[9] = contour[tidx];
+                    contour[tidx] = t;
+                }
+            }
+        }
+    }
+    // if(level > 0) has = uvec3(0,0,0);
+    // has.x = has.z = 0;
+    // if(level == 0) has = uvec3(0,0,0);
+
+    uint64_t nnz = has.x + has.y + has.z;
+    if(nnz > 0){
+        uint64_t global_st;
+        global_st = atomicAdd(LevelCounter[0], nnz * 3);
+        idx -= (blockSize3 << 1);
+        // [unroll]
+        // for(uint i = 0; i < 3; i++) {
+        //     uint cur_vert = 0, nxt_vert = 1;
+        //     for(uint j = 0; j < has[i]; j++){
+        //         Contour[global_st] = idx;
+        //         Contour[global_st + 1] = contour[(i << 2) + cur_vert];
+        //         Contour[global_st + 2] = contour[(i << 2) + nxt_vert];
+        //         cur_vert = nxt_vert;
+        //         nxt_vert = (nxt_vert + 1) % has[i];
+        //         global_st += 3;
+        //     }
+        //     idx += blockSize3;
+        // }
+
+#pragma unroll
+        for(int k = 0; k < 3; k++){
+            int st = k << 2;
+#pragma unroll
+            for(int j = 0; j < 4; j++)
+                contour[st + j] |= ((inv[k] << 31) | (k << 29));
+        }
+
+#pragma unroll
+        for(uint i = 0; i < 3; i++) {
+            uint cur_vert = 0, nxt_vert = 1;
+            uint h = has[i];
+            uint i2 = i << 2;
+            if(h == 1){
+                Contour[int(global_st)] = contour[i2];
+                Contour[int(global_st + 1)] = contour[i2 + 1];
+                Contour[int(global_st + 2)] = contour[i2 + 2];
+                global_st += 3;
+            }else if(h == 2){
+                Contour[int(global_st)] = contour[i2];
+                Contour[int(global_st + 1)] = contour[i2 + 1];
+                Contour[int(global_st + 2)] = contour[i2 + 2];
+                global_st += 3;
+                Contour[int(global_st)] = contour[i2];
+                Contour[int(global_st + 1)] = contour[i2 + 2];
+                Contour[int(global_st + 2)] = contour[i2 + 3];
+                global_st += 3;
+            }
+        }
+    }
+
+}
