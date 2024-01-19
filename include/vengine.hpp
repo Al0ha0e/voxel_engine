@@ -17,17 +17,6 @@ namespace vxe_common
         Engine(const Engine &);
         Engine &operator=(const Engine);
 
-        class Deletor
-        {
-        public:
-            ~Deletor()
-            {
-                if (Engine::instance != nullptr)
-                    delete Engine::instance;
-            }
-        };
-        static Deletor deletor;
-
     public:
         static Engine *GetInstance()
         {
@@ -43,12 +32,14 @@ namespace vxe_common
         static Engine *Init(int width, int height, int levelNum)
         {
             instance = new Engine();
-            instance->terrainRenderer = new vxe_voxel::WorldVoxelRenderer();
+            std::unique_ptr<vxe_voxel::WorldVoxelRenderer> terrainRenderer = std::make_unique<vxe_voxel::WorldVoxelRenderer>();
+            instance->terrainRenderer = terrainRenderer.get();
             std::vector<vke_render::PassType> passes = {
                 // vke_render::BASE_RENDERER,
                 vke_render::CUSTOM_RENDERER,
                 vke_render::OPAQUE_RENDERER};
-            std::vector<vke_render::SubpassBase *> customPasses{instance->terrainRenderer};
+            std::vector<std::unique_ptr<vke_render::SubpassBase>> customPasses;
+            customPasses.push_back(std::move(terrainRenderer));
             std::vector<vke_render::RenderPassInfo> customPassInfo{
                 vke_render::RenderPassInfo(
                     VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
@@ -57,7 +48,7 @@ namespace vxe_common
             instance->engine = vke_common::Engine::Init(width, height, passes, customPasses, customPassInfo);
 
             instance->terrain = vxe_terrain::Terrain::Init(levelNum);
-            instance->terrainRenderer->SetVoxel(instance->terrain->worldVoxel);
+            instance->terrainRenderer->SetVoxel(instance->terrain->worldVoxel.get());
             return instance;
         }
 
@@ -67,6 +58,7 @@ namespace vxe_common
         {
             instance->terrain->Dispose();
             instance->engine->Dispose();
+            delete instance;
         }
     };
 }

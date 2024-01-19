@@ -20,7 +20,8 @@ vxe_common::Engine *engine;
 float time_prev, time_delta;
 vxe_terrain::EditInfo editInfo;
 vke_common::TransformParameter camParam(glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, glm::radians(0.0f), 0.0f));
-vke_common::GameObject cameraGameObj(camParam);
+vke_common::GameObject *camp = nullptr;
+vke_common::GameObject *targetp = nullptr;
 
 void processInput(GLFWwindow *window, vke_common::GameObject *target, vke_common::GameObject *target2);
 void mouse_callback(GLFWwindow *window, double xpos, double ypos);
@@ -32,20 +33,32 @@ int main()
     vke_render::RenderResourceManager *manager = vke_render::RenderResourceManager::GetInstance();
 
     vke_common::TransformParameter targetParam(glm::vec3(-0.5f, 0.5f, -1.0f), glm::vec3(0.0f, 0.0f, 0.0f));
-    vke_common::GameObject targetGameObj(targetParam);
-    vke_render::Material *material = manager->LoadMaterial("");
-    vke_render::Mesh *mesh = manager->LoadMesh("");
-    vke_component::RenderableObject renderObj(material, mesh, &targetGameObj);
-    targetGameObj.components.push_back(&renderObj);
+    std::unique_ptr<vke_common::GameObject> targetGameObj = std::make_unique<vke_common::GameObject>(targetParam);
+    targetp = targetGameObj.get();
 
-    vke_component::Camera camera(105, WIDTH, HEIGHT, 0.01, 100000, &cameraGameObj);
-    cameraGameObj.components.push_back(&camera);
-    vxe_terrain::Terrain::SetObserver(&cameraGameObj);
+    {
+        std::shared_ptr<vke_render::Material> material = manager->LoadMaterial("");
+        std::shared_ptr<vke_render::Mesh> mesh = manager->LoadMesh("");
+        targetGameObj->AddComponent(std::make_unique<vke_component::RenderableObject>(material, mesh, targetGameObj.get()));
+    }
+
+    std::unique_ptr<vke_common::GameObject> cameraGameObj = std::make_unique<vke_common::GameObject>(camParam);
+    camp = cameraGameObj.get();
+    cameraGameObj->AddComponent(std::make_unique<vke_component::Camera>(105, WIDTH, HEIGHT, 0.01, 100000, camp));
+
+    vxe_terrain::Terrain::SetObserver(camp);
+
+    std::unique_ptr<vke_common::Scene> scene = std::make_unique<vke_common::Scene>();
+    scene->AddObject(std::move(cameraGameObj));
+    scene->AddObject(std::move(targetGameObj));
+
+    vke_common::SceneManager::SetCurrentScene(std::move(scene));
 
     // vke_render::RenderResourceManager *manager = vke_render::RenderResourceManager::GetInstance();
     GLFWwindow *window = engine->engine->environment->window;
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
     glfwSetCursorPosCallback(window, mouse_callback);
+    glfwSetFramebufferSizeCallback(window, vke_common::Engine::OnWindowResize);
 
     while (!glfwWindowShouldClose(window))
     {
@@ -58,7 +71,7 @@ int main()
         time_prev = now;
         // std::cout << 1 / time_delta << std::endl;
 
-        processInput(window, &cameraGameObj, &targetGameObj);
+        processInput(window, camp, targetp);
 
         engine->Update();
     }
@@ -66,7 +79,7 @@ int main()
 
     // engine->MainLoop();
 
-    vke_common::Engine::Dispose();
+    vxe_common::Engine::Dispose();
     return 0;
 }
 
@@ -156,6 +169,6 @@ void mouse_callback(GLFWwindow *window, double xpos, double ypos)
     float yoffset = lastY - ypos;
     lastX = xpos;
     lastY = ypos;
-    cameraGameObj.RotateGlobal(-xoffset * rotateSpeed * time_delta, glm::vec3(0.0f, 1.0f, 0.0f));
-    cameraGameObj.RotateLocal(yoffset * rotateSpeed * time_delta, glm::vec3(1.0f, 0.0f, 0.0f));
+    camp->RotateGlobal(-xoffset * rotateSpeed * time_delta, glm::vec3(0.0f, 1.0f, 0.0f));
+    camp->RotateLocal(yoffset * rotateSpeed * time_delta, glm::vec3(1.0f, 0.0f, 0.0f));
 }

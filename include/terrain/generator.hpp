@@ -14,8 +14,6 @@ namespace vxe_terrain
         vke_render::HostCoherentBuffer generationInfoBuffer;
         vke_render::StagedBuffer localBlockPos;
 
-        TerrainGenerator() {}
-
         TerrainGenerator(vxe_voxel::WorldVoxel *voxel)
             : worldVoxel(voxel),
               generationInfoBuffer(sizeof(int) * 2, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
@@ -52,7 +50,7 @@ namespace vxe_terrain
                 voxel->edgePositionBuffer.buffer, voxel->edgeNormalBuffer.buffer, voxel->edgeInfoBuffer.buffer,
                 voxel->vertInfoBuffer.buffer};
 
-            terrainGenerationTask = new vke_render::ComputeTask(terrainGeneratorShader, std::move(descriptorInfos));
+            terrainGenerationTask = std::make_unique<vke_render::ComputeTask>(terrainGeneratorShader, std::move(descriptorInfos));
             terrainGenerationTaskID = terrainGenerationTask->AddInstance(
                 std::move(buffers),
                 std::move(std::vector<VkSemaphore>{}),
@@ -84,8 +82,8 @@ namespace vxe_terrain
 
     private:
         vxe_voxel::WorldVoxel *worldVoxel;
-        vke_render::ComputeShader *terrainGeneratorShader;
-        vke_render::ComputeTask *terrainGenerationTask;
+        std::shared_ptr<vke_render::ComputeShader> terrainGeneratorShader;
+        std::unique_ptr<vke_render::ComputeTask> terrainGenerationTask;
         uint64_t terrainGenerationTaskID;
 
         int GetEdgeIdx(int level, int dim, glm::uvec3 block, glm::uvec3 cell)

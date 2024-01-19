@@ -21,7 +21,6 @@ namespace vxe_terrain
             EDIT_INC
         };
 
-        TerrainEditor() {}
         TerrainEditor(vxe_voxel::WorldVoxel *voxel)
             : worldVoxel(voxel),
               editInfoBuffer(sizeof(EditInfo), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT)
@@ -47,7 +46,7 @@ namespace vxe_terrain
                 voxel->edgeInfoBuffer.buffer,
                 voxel->vertInfoBuffer.buffer};
 
-            updateInfoTask = new vke_render::ComputeTask(updateInfoShader, std::move(descriptorInfos));
+            updateInfoTask = std::make_unique<vke_render::ComputeTask>(updateInfoShader, std::move(descriptorInfos));
             updateInfoTaskID = updateInfoTask->AddInstance(
                 std::move(buffers),
                 std::move(std::vector<VkSemaphore>{}),
@@ -65,12 +64,12 @@ namespace vxe_terrain
 
     private:
         vxe_voxel::WorldVoxel *worldVoxel;
-        std::vector<vke_render::ComputeShader *> terrainEditorShaders;
-        std::vector<vke_render::ComputeTask *> terrainEditTasks;
+        std::vector<std::shared_ptr<vke_render::ComputeShader>> terrainEditorShaders;
+        std::vector<std::unique_ptr<vke_render::ComputeTask>> terrainEditTasks;
         std::vector<uint64_t> terrainEditTaskIDs;
 
-        vke_render::ComputeShader *updateInfoShader;
-        vke_render::ComputeTask *updateInfoTask;
+        std::shared_ptr<vke_render::ComputeShader> updateInfoShader;
+        std::unique_ptr<vke_render::ComputeTask> updateInfoTask;
         uint64_t updateInfoTaskID;
 
         void initEditor(std::string pth)
@@ -101,8 +100,8 @@ namespace vxe_terrain
                 worldVoxel->edgePositionBuffer.buffer, worldVoxel->edgeNormalBuffer.buffer, worldVoxel->edgeInfoBuffer.buffer,
                 worldVoxel->vertInfoBuffer.buffer};
 
-            vke_render::ComputeShader *editShader = vke_render::RenderResourceManager::LoadComputeShader(pth);
-            vke_render::ComputeTask *editTask = new vke_render::ComputeTask(editShader, std::move(descriptorInfos));
+            std::shared_ptr<vke_render::ComputeShader> editShader = vke_render::RenderResourceManager::LoadComputeShader(pth);
+            std::unique_ptr<vke_render::ComputeTask> editTask = std::make_unique<vke_render::ComputeTask>(editShader, std::move(descriptorInfos));
             uint64_t editTaskID = editTask->AddInstance(
                 std::move(buffers),
                 std::move(std::vector<VkSemaphore>{}),
@@ -110,7 +109,7 @@ namespace vxe_terrain
                 std::move(std::vector<VkSemaphore>{}));
 
             terrainEditorShaders.push_back(editShader);
-            terrainEditTasks.push_back(editTask);
+            terrainEditTasks.push_back(std::move(editTask));
             terrainEditTaskIDs.push_back(editTaskID);
         }
     };

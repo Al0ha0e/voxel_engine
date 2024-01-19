@@ -17,17 +17,6 @@ namespace vxe_terrain
         Terrain(const Terrain &);
         Terrain &operator=(const Terrain);
 
-        class Deletor
-        {
-        public:
-            ~Deletor()
-            {
-                if (Terrain::instance != nullptr)
-                    delete Terrain::instance;
-            }
-        };
-        static Deletor deletor;
-
     public:
         static Terrain *GetInstance()
         {
@@ -37,18 +26,20 @@ namespace vxe_terrain
         }
 
         vke_common::GameObject *observer;
-        vxe_voxel::WorldVoxel *worldVoxel;
-        TerrainGenerator *generator;
-        TerrainEditor *editor;
+        std::unique_ptr<vxe_voxel::WorldVoxel> worldVoxel;
+        std::unique_ptr<TerrainGenerator> generator;
+        std::unique_ptr<TerrainEditor> editor;
 
         static Terrain *Init(int levelNum)
         {
             instance = new Terrain();
-            instance->worldVoxel = new vxe_voxel::WorldVoxel(levelNum);
-            instance->generator = new TerrainGenerator(instance->worldVoxel);
-            instance->editor = new TerrainEditor(instance->worldVoxel);
+            instance->worldVoxel = std::make_unique<vxe_voxel::WorldVoxel>(levelNum);
+            instance->generator = std::make_unique<TerrainGenerator>(instance->worldVoxel.get());
+            instance->editor = std::make_unique<TerrainEditor>(instance->worldVoxel.get());
+
             memset(instance->centers, 0, sizeof(glm::ivec4) * 16);
             memset(instance->prevCenters, 0, sizeof(glm::ivec4) * 16);
+
             vxe_voxel::WorldVoxel &worldVoxel = *(instance->worldVoxel);
             worldVoxel.gridCenter.ToBuffer(0, instance->centers, worldVoxel.gridCenter.bufferSize);
             for (int i = 1; i < levelNum; i++)
@@ -78,7 +69,12 @@ namespace vxe_terrain
             return instance;
         }
 
-        static void Dispose() {}
+        static void Dispose()
+        {
+            VkDevice logicalDevice = vke_render::RenderEnvironment::GetInstance()->logicalDevice;
+            vkDestroyFence(logicalDevice, instance->fence, nullptr);
+            delete instance;
+        }
 
         static void SetObserver(vke_common::GameObject *observer)
         {

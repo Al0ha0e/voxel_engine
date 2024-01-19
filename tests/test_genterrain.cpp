@@ -6,7 +6,7 @@ int main()
     std::vector<vke_render::PassType> passes = {
         vke_render::BASE_RENDERER,
         vke_render::OPAQUE_RENDERER};
-    std::vector<vke_render::SubpassBase *> customPasses;
+    std::vector<std::unique_ptr<vke_render::SubpassBase>> customPasses;
     std::vector<vke_render::RenderPassInfo> customPassInfo;
     vke_common::Engine *engine = vke_common::Engine::Init(800, 600, passes, customPasses, customPassInfo);
     VkDevice logicalDevice = vke_render::RenderEnvironment::GetInstance()->logicalDevice;

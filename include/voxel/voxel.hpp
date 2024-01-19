@@ -19,6 +19,8 @@ namespace vxe_voxel
     {
     public:
         int levelNum;
+        int totSize;
+        int totSize3d;
         int vertexNum;
 
         vke_render::HostCoherentBuffer surfaceGenerationInfoBuffer;
@@ -33,10 +35,22 @@ namespace vxe_voxel
         vke_render::StagedBuffer contourBuffer;
         vke_render::StagedBuffer levelCounter;
 
-        WorldVoxel() {}
-        WorldVoxel(int levelNum) : levelNum(levelNum)
+        WorldVoxel(int levelNum)
+            : levelNum(levelNum),
+              totSize(blockSize * gridSize * levelNum),
+              totSize3d(totSize * 3),
+              surfaceGenerationInfoBuffer(sizeof(int), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
+              gridCenter(16 * sizeof(int) * 4, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
+              gridSubMin(16 * sizeof(int) * 4, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
+              edgePositionBuffer(totSize3d * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
+              edgeNormalBuffer(totSize3d * sizeof(float) * 4, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
+              edgeInfoBuffer(totSize3d * sizeof(int), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
+              vertPositionBuffer(totSize * sizeof(float) * 4, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
+              vertNormalBuffer(totSize * sizeof(float) * 4, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
+              vertInfoBuffer(totSize * sizeof(int), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
+              contourBuffer(totSize3d * 3 * 3 * sizeof(int), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
+              levelCounter(sizeof(int64_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT)
         {
-            initBuffers();
             initVertexGenerator();
             initSurfaceGenerator();
         }
@@ -51,30 +65,13 @@ namespace vxe_voxel
         }
 
     private:
-        vke_render::ComputeShader *vertexGeneratiorShader;
-        vke_render::ComputeTask *vertexGenerationTask;
+        std::shared_ptr<vke_render::ComputeShader> vertexGeneratiorShader;
+        std::unique_ptr<vke_render::ComputeTask> vertexGenerationTask;
         uint64_t vertexGenerationTaskID;
 
-        vke_render::ComputeShader *surfaceGeneratiorShader;
-        vke_render::ComputeTask *surfaceGenerationTask;
+        std::shared_ptr<vke_render::ComputeShader> surfaceGeneratiorShader;
+        std::unique_ptr<vke_render::ComputeTask> surfaceGenerationTask;
         uint64_t surfaceGenerationTaskID;
-
-        void initBuffers()
-        {
-            int totSize = blockSize * gridSize * levelNum;
-            int totSize3d = totSize * 3;
-            surfaceGenerationInfoBuffer = vke_render::HostCoherentBuffer(sizeof(int), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-            gridCenter = vke_render::HostCoherentBuffer(16 * sizeof(int) * 4, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-            gridSubMin = vke_render::HostCoherentBuffer(16 * sizeof(int) * 4, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-            edgePositionBuffer = vke_render::StagedBuffer(totSize3d * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-            edgeNormalBuffer = vke_render::StagedBuffer(totSize3d * sizeof(float) * 4, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-            edgeInfoBuffer = vke_render::StagedBuffer(totSize3d * sizeof(int), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-            vertPositionBuffer = vke_render::StagedBuffer(totSize * sizeof(float) * 4, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-            vertNormalBuffer = vke_render::StagedBuffer(totSize * sizeof(float) * 4, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-            vertInfoBuffer = vke_render::StagedBuffer(totSize * sizeof(int), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-            contourBuffer = vke_render::StagedBuffer(totSize3d * 3 * 3 * sizeof(int), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-            levelCounter = vke_render::StagedBuffer(sizeof(int64_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
-        }
 
         void initVertexGenerator()
         {
@@ -109,7 +106,7 @@ namespace vxe_voxel
                 edgePositionBuffer.buffer, edgeNormalBuffer.buffer, edgeInfoBuffer.buffer,
                 vertPositionBuffer.buffer, vertNormalBuffer.buffer, vertInfoBuffer.buffer};
 
-            vertexGenerationTask = new vke_render::ComputeTask(vertexGeneratiorShader, std::move(descriptorInfos));
+            vertexGenerationTask = std::make_unique<vke_render::ComputeTask>(vertexGeneratiorShader, std::move(descriptorInfos));
             vertexGenerationTaskID = vertexGenerationTask->AddInstance(
                 std::move(buffers),
                 std::move(std::vector<VkSemaphore>{}),
@@ -147,7 +144,7 @@ namespace vxe_voxel
                 gridCenter.buffer, surfaceGenerationInfoBuffer.buffer, edgeInfoBuffer.buffer,
                 gridSubMin.buffer, levelCounter.buffer, contourBuffer.buffer};
 
-            surfaceGenerationTask = new vke_render::ComputeTask(surfaceGeneratiorShader, std::move(descriptorInfos));
+            surfaceGenerationTask = std::make_unique<vke_render::ComputeTask>(surfaceGeneratiorShader, std::move(descriptorInfos));
             surfaceGenerationTaskID = surfaceGenerationTask->AddInstance(
                 std::move(buffers),
                 std::move(std::vector<VkSemaphore>{}),

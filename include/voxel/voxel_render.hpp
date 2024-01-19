@@ -18,11 +18,18 @@ namespace vxe_voxel
             indirectCommand.instanceCount = 1;
         }
 
+        ~WorldVoxelRenderer()
+        {
+            VkDevice logicalDevice = environment->logicalDevice;
+            vkDestroyPipeline(logicalDevice, pipeline, nullptr);
+            vkDestroyPipelineLayout(logicalDevice, pipelineLayout, nullptr);
+        }
+
         void Init(int subpassID, VkRenderPass renderPass) override
         {
             environment = vke_render::RenderEnvironment::GetInstance();
             SubpassBase::Init(subpassID, renderPass);
-            indirectCommandBuffer = vke_render::StagedBuffer(sizeof(VkDrawIndirectCommand), VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
+            indirectCommandBuffer = std::make_unique<vke_render::StagedBuffer>(sizeof(VkDrawIndirectCommand), VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
 
             shader = vke_render::RenderResourceManager::LoadVertFragShader("./shader/terrain_vert.spv", "./shader/terrain_frag.spv");
         }
@@ -34,11 +41,6 @@ namespace vxe_voxel
             createGraphicsPipeline();
         }
 
-        void Dispose() override
-        {
-            vkDestroyPipeline(environment->logicalDevice, pipeline, nullptr);
-            vkDestroyPipelineLayout(environment->logicalDevice, pipelineLayout, nullptr);
-        }
         void RegisterCamera(VkBuffer buffer) override
         {
             vke_render::DescriptorInfo &info = descriptorInfos[0];
@@ -73,20 +75,20 @@ namespace vxe_voxel
                 0, 1, &descriptorSet,
                 0, nullptr);
             indirectCommand.vertexCount = worldVoxel->vertexNum;
-            indirectCommandBuffer.ToBuffer(0, &indirectCommand, sizeof(VkDrawIndirectCommand));
-            vkCmdDrawIndirect(commandBuffer, indirectCommandBuffer.buffer, 0, 1, sizeof(VkDrawIndirectCommand));
+            indirectCommandBuffer->ToBuffer(0, &indirectCommand, sizeof(VkDrawIndirectCommand));
+            vkCmdDrawIndirect(commandBuffer, indirectCommandBuffer->buffer, 0, 1, sizeof(VkDrawIndirectCommand));
         }
 
     private:
         vke_render::RenderEnvironment *environment;
         WorldVoxel *worldVoxel;
-        vke_render::VertFragShader *shader;
+        std::shared_ptr<vke_render::VertFragShader> shader;
         VkPipelineLayout pipelineLayout;
         VkPipeline pipeline;
         std::vector<vke_render::DescriptorInfo> descriptorInfos;
         vke_render::DescriptorSetInfo descriptorSetInfo;
         VkDescriptorSet descriptorSet;
-        vke_render::StagedBuffer indirectCommandBuffer;
+        std::unique_ptr<vke_render::StagedBuffer> indirectCommandBuffer;
         VkDrawIndirectCommand indirectCommand;
 
         void createDescriptorSet();
