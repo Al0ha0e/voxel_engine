@@ -1,4 +1,7 @@
 #version 450
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : enable
+#extension GL_EXT_shader_8bit_storage : enable
+#extension GL_EXT_shader_16bit_storage : enable
 #extension GL_ARB_separate_shader_objects: enable
 #extension GL_GOOGLE_include_directive : enable
 #include "terrain_util.h"
@@ -17,19 +20,19 @@ layout (std430, set = 0, binding = 2) buffer LocalBlockPosSSBO {
 } ;
 
 layout (std430, set = 0, binding = 3) buffer EdgePositionSSBO {
-    float EdgePosition[];
+    uint8_t EdgePosition[];
 } ;
 
 layout (std430, set = 0, binding = 4) buffer EdgeNormalSSBO {
-    vec3 EdgeNormal[];
+    u8vec2 EdgeNormal[];
 } ;
 
 layout (std430, set = 0, binding = 5) buffer EdgeInfoSSBO {
-    uint EdgeInfo[];
+    uint8_t EdgeInfo[];
 } ;
 
 layout (std430, set = 0, binding = 6) buffer VertInfoSSBO {
-    uint VertInfo[];
+    uint16_t VertInfo[];
 } ;
 
 vec2 Random(vec2 vec)
@@ -118,33 +121,33 @@ void main()
 
     float height0 = GetHeight(world_cell_pos) - float(world_cell_pos.y);
 
-    VertInfo[vidx] = height0 > 0 ? (1 << 30) : 0;
+    VertInfo[vidx] = uint16_t(height0 > 0 ? (1 << 14) : 0);
     ///////////////////////////X//////////////////////////////////
     float height1 = GetHeight(world_cell_pos + vec3(size, 0, 0)) - float(world_cell_pos.y);
     // EdgeInfo[eidx] = 0;
     if (height0 * height1 < 0) // MAY OVERFLOW?
     {
-        EdgeInfo[eidx] = 1 + (uint(height0 < 0) << 3);
+        EdgeInfo[eidx] = uint8_t(1 + (uint(height0 < 0) << 3));
         float pos = CalcEdgePosition(world_cell_pos, size, 0, height0);
-        EdgePosition[eidx] = pos;//abs(height0) / (abs(height0) + abs(height1));
-        EdgeNormal[eidx].xyz = CalcEdgeNormal(world_cell_pos + vec3(pos * level, 0, 0));
+        EdgePosition[eidx] = uint8_t(pos * 255.0);//abs(height0) / (abs(height0) + abs(height1));
+        EdgeNormal[eidx] = EncodeNormal(CalcEdgeNormal(world_cell_pos + vec3(pos * level, 0, 0)));
     }
     else if (height0 == 0 && height1 > 0)
     {
         // TODO h1 == 0
-        EdgeInfo[eidx] = 1 + (1 << 3);
-        EdgePosition[eidx] = 0;
-        EdgeNormal[eidx].xyz = CalcEdgeNormal(world_cell_pos);
+        EdgeInfo[eidx] = uint8_t(1 + (1 << 3));
+        EdgePosition[eidx] = uint8_t(0);
+        EdgeNormal[eidx] = EncodeNormal(CalcEdgeNormal(world_cell_pos));
     }
     else if (height1 == 0 && height0 > 0)
     {
-        EdgeInfo[eidx] = 1;
-        EdgePosition[eidx] = 1;
-        EdgeNormal[eidx].xyz = CalcEdgeNormal(world_cell_pos + vec3(level, 0, 0));
+        EdgeInfo[eidx] = uint8_t(1);
+        EdgePosition[eidx] = uint8_t(255);
+        EdgeNormal[eidx] = EncodeNormal(CalcEdgeNormal(world_cell_pos + vec3(level, 0, 0)));
     } //TODO both zero
     else
     {
-        EdgeInfo[eidx] = 0 + (uint(height0 > 0) << 3);
+        EdgeInfo[eidx] = uint8_t(0 + (uint(height0 > 0) << 3));
     }
     // EdgeInfo[eidx] = 0;
     //EdgeNormal[eidx] = vec3(1.0f, 0.0f, 0.0f);
@@ -155,20 +158,20 @@ void main()
     // EdgeInfo[eidx] = 2;
     if (height0 * height1 < 0) // MAY OVERFLOW?
     {
-        EdgeInfo[eidx] = 3;
+        EdgeInfo[eidx] = uint8_t(3);
         float pos = CalcEdgePosition(world_cell_pos, size, 1, height0);
-        EdgePosition[eidx] = pos;//abs(height0) / (size * 1.0f);
-        EdgeNormal[eidx].xyz = CalcEdgeNormal(world_cell_pos + vec3(0, pos * level, 0));
+        EdgePosition[eidx] = uint8_t(pos * 255.0);//abs(height0) / (size * 1.0f);
+        EdgeNormal[eidx] = EncodeNormal(CalcEdgeNormal(world_cell_pos + vec3(0, pos * level, 0)));
     }
     else if (height1 == 0 && height0 > 0)
     {
-        EdgeInfo[eidx] = 3;
-        EdgePosition[eidx] = 1;
-        EdgeNormal[eidx].xyz = CalcEdgeNormal(world_cell_pos + vec3(0, level, 0));
+        EdgeInfo[eidx] = uint8_t(3);
+        EdgePosition[eidx] = uint8_t(255);
+        EdgeNormal[eidx] = EncodeNormal(CalcEdgeNormal(world_cell_pos + vec3(0, level, 0)));
     }
     else
     {
-        EdgeInfo[eidx] = 2 + (uint(height0 > 0) << 3);
+        EdgeInfo[eidx] = uint8_t(2 + (uint(height0 > 0) << 3));
     }
     // EdgeInfo[eidx] = 2;
     // EdgeNormal[eidx] = vec3(0.0f, 1.0f, 0.0f);
@@ -179,24 +182,24 @@ void main()
     // EdgeInfo[eidx] = 4;
     if (height0 * height1 < 0) // MAY OVERFLOW?
     {
-        EdgeInfo[eidx] = 5 + (uint(height0 < 0) << 3);
+        EdgeInfo[eidx] = uint8_t(5 + (uint(height0 < 0) << 3));
         float pos = CalcEdgePosition(world_cell_pos, size, 2, height0);
-        EdgePosition[eidx] = pos;//abs(height0) / (abs(height0) + abs(height1));
-        EdgeNormal[eidx].xyz = CalcEdgeNormal(world_cell_pos + vec3(0, 0, pos * level));
+        EdgePosition[eidx] = uint8_t(pos * 255.0);//abs(height0) / (abs(height0) + abs(height1));
+        EdgeNormal[eidx] = EncodeNormal(CalcEdgeNormal(world_cell_pos + vec3(0, 0, pos * level)));
     }
     else if(height0 == 0 && height1 > 0){
-        EdgeInfo[eidx] = 5 + (1 << 3);
-        EdgePosition[eidx] = 0;
-        EdgeNormal[eidx].xyz = CalcEdgeNormal(world_cell_pos);
+        EdgeInfo[eidx] = uint8_t(5 + (1 << 3));
+        EdgePosition[eidx] = uint8_t(0);
+        EdgeNormal[eidx] = EncodeNormal(CalcEdgeNormal(world_cell_pos));
     }
     else if(height1 == 0 && height0 > 0){
-        EdgeInfo[eidx] = 5;
-        EdgePosition[eidx] = 1;
-        EdgeNormal[eidx].xyz = CalcEdgeNormal(world_cell_pos + vec3(0, 0, level));
+        EdgeInfo[eidx] = uint8_t(5);
+        EdgePosition[eidx] = uint8_t(255);
+        EdgeNormal[eidx] = EncodeNormal(CalcEdgeNormal(world_cell_pos + vec3(0, 0, level)));
     }
     else
     {
-        EdgeInfo[eidx] = 4 + (uint(height0 > 0) << 3);
+        EdgeInfo[eidx] = uint8_t(4 + (uint(height0 > 0) << 3));
     }
     // EdgeInfo[eidx] = 4;
     // EdgeNormal[eidx] = vec3(0.0f, 0.0f, 1.0f);

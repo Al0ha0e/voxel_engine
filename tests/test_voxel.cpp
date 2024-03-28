@@ -11,9 +11,9 @@
 #include <component/camera.hpp>
 #include <component/renderable_object.hpp>
 
-const uint32_t WIDTH = 1024;
-const uint32_t HEIGHT = 768;
-const uint32_t levelnum = 5;
+const uint32_t WIDTH = 1920;
+const uint32_t HEIGHT = 1080;
+const uint32_t levelnum = 10;
 const float editR = 3;
 
 vxe_common::Engine *engine;

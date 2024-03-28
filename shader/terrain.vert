@@ -1,4 +1,7 @@
 #version 450
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : enable
+#extension GL_EXT_shader_8bit_storage : enable
+#extension GL_EXT_shader_16bit_storage : enable
 #extension GL_ARB_separate_shader_objects: enable
 #extension GL_GOOGLE_include_directive : enable
 #include "terrain_util.h"
@@ -17,15 +20,15 @@ layout(std430, set = 0, binding = 1) buffer GridInfoUBO {
 } ;
 
 layout (std430, set = 0, binding = 2) buffer VertPositionSSBO {
-    vec3 VertPosition[];
+    u8vec4 VertPosition[];
 } ;
 
 layout (std430, set = 0, binding = 3) buffer VertNormalSSBO {
-    vec3 VertNormal[];
+    u8vec2 VertNormal[];
 } ;
 
 layout (std430, set = 0, binding = 4) buffer VertInfoSSBO {
-    uint VertInfo[];
+    uint16_t VertInfo[];
 } ;
 
 layout (std430, set = 0, binding = 5) buffer ContourSSBO {
@@ -60,8 +63,8 @@ void main()
         level = idx / (gridStorageSize3 * blockSize3);
         uvec3 offset = GridCenter[level] & 3;
         global_cell_pos = ivec3(GetPosFromVIdx(idx, level, offset));
-        position = VertPosition[idx];
-        outNormal = VertNormal[idx];
+        position = vec3(VertPosition[idx].xyz) / 255.0;
+        outNormal = DecodeNormal(VertNormal[idx]);
         //outNormal = vec3(0.0f,0.0f,0.0f) + vec3(0.01 * level, 0.01 * level, 0.01 * level);
     // }
     position *= float(1 << level);

@@ -92,4 +92,26 @@ ivec3 GetCellWorldPosition(ivec3 global_cell_pos, ivec3 grid_center, uint level)
     return global_cell_pos << level;
 }
 
+vec3 DecodeNormal(u8vec2 ori)
+{
+    float pis2 = asin(1);
+    float rad1 = float(ori.x) / 250 * pis2 * 2 - pis2;
+    float rad2 = float(ori.y) / 250 * pis2 * 4;
+    float c = cos(rad1);
+    return vec3(c * cos(rad2), c * sin(rad2), sin(rad1));
+}
+
+u8vec2 EncodeNormal(vec3 ori)
+{
+    if (ori.x == 0 && ori.y == 0)
+        return u8vec2(sign(ori.z) * 125 + 125, 0);
+
+    float pis2 = asin(1);
+    float l2 = ori.x * ori.x + ori.y * ori.y;
+    float iql2 = inversesqrt(l2);
+    float rad1 = atan(ori.z * iql2) * 125 / pis2 + 125;
+    float rad2 = (1 + sign(ori.y) * (acos(ori.x * iql2) / (pis2 * 2) - 1)) * 125;
+    return u8vec2(rad1, rad2);
+}
+
 #endif

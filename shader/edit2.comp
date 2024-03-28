@@ -1,4 +1,8 @@
 #version 450
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int16 : enable
+#extension GL_EXT_shader_8bit_storage : enable
+#extension GL_EXT_shader_16bit_storage : enable
 #extension GL_ARB_separate_shader_objects: enable
 #extension GL_GOOGLE_include_directive : enable
 
@@ -12,16 +16,16 @@ layout(std430, set = 0, binding = 1) buffer EditInfoSSBO {
     uint MaterialType;
 } ;
 layout (std430, set = 0, binding = 2) buffer EdgePositionSSBO {
-    float EdgePosition[];
+    uint8_t EdgePosition[];
 } ;
 layout (std430, set = 0, binding = 3) buffer EdgeNormalSSBO {
-    vec3 EdgeNormal[];
+    u8vec2 EdgeNormal[];
 } ;
 layout (std430, set = 0, binding = 4) buffer EdgeInfoSSBO {
-    uint EdgeInfo[];
+    uint8_t EdgeInfo[];
 } ;
 layout (std430, set = 0, binding = 5) buffer VertInfoSSBO {
-    uint VertInfo[];
+    uint16_t VertInfo[];
 } ;
 
 layout (local_size_x = 16, local_size_y = 16, local_size_z = 4) in;
@@ -51,7 +55,7 @@ void main ()
     ///////////////////////////X//////////////////////////////////
     uint info = EdgeInfo[eidx];
     if((info & 1) > 0){ //cross surface
-        float len = EdgePosition[eidx];
+        float len = float(EdgePosition[eidx]) / 255.0;
         if((info & 8) > 0){ //en->st
             vec3 dir0 = EditCenter - world_cell_pos;
             float dist0 = length(dir0);
@@ -60,7 +64,7 @@ void main ()
             float rdist1 = dist1 - EditRadius;
 
             if(rdist0 < 0){
-                EdgeInfo[eidx] = 0 + 8;
+                EdgeInfo[eidx] = uint8_t(0 + 8);
                 vtype = MaterialType | (1 << 30);
             }else if(rdist1 < 0){
                 if((VertInfo[GetVertIdx(level, global_cell_pos + uvec3(1, 0, 0), offset)] & 0x3ff) == MaterialType){
@@ -73,8 +77,8 @@ void main ()
                     // else{ //dist0 = 0
                     //     EdgePosition[eidx] = 0;
                     // }
-                    EdgePosition[eidx] = l / size;
-                    EdgeNormal[eidx] = normalize(vec3(l, 0, 0) - dir0);
+                    EdgePosition[eidx] = uint8_t(l / size * 255);
+                    EdgeNormal[eidx] = EncodeNormal(normalize(vec3(l, 0, 0) - dir0));
                 }
             }
         }else{ //st->en
@@ -85,7 +89,7 @@ void main ()
             float rdist1 = dist1 - EditRadius;
 
             if(rdist0 < 0){
-                EdgeInfo[eidx] = 0 + 8;
+                EdgeInfo[eidx] = uint8_t(0 + 8);
             }else if(rdist1 < 0){
                 if(vtype == MaterialType){
                     float l = 0;
@@ -97,8 +101,8 @@ void main ()
                     // else{ //dist0 = 0
                     //     EdgePosition[eidx] = 0;
                     // }
-                    EdgePosition[eidx] = 1.0f - l / size;
-                    EdgeNormal[eidx] = normalize(vec3(-l, 0, 0) - dir0);
+                    EdgePosition[eidx] = uint8_t((1.0f - l / size) * 255);
+                    EdgeNormal[eidx] = EncodeNormal(normalize(vec3(-l, 0, 0) - dir0));
                 }
             }
         }
@@ -121,14 +125,14 @@ void main ()
             else
                 l = p - s;
             
-            EdgePosition[eidx] = l / size;
-            EdgeNormal[eidx] = normalize(vec3(l, 0, 0) - dir0);
-            EdgeInfo[eidx] = 1 + (uint(rdist0 >= 0) << 3);
+            EdgePosition[eidx] = uint8_t(l / size * 255);
+            EdgeNormal[eidx] = EncodeNormal(normalize(vec3(l, 0, 0) - dir0));
+            EdgeInfo[eidx] = uint8_t(1 + (uint(rdist0 >= 0) << 3));
 
             if(rdist0 < 0)
                 vtype = MaterialType | (1 << 30);
         }else if(rdist0 < 0){
-            EdgeInfo[eidx] = 0 + 8;
+            EdgeInfo[eidx] = uint8_t(0 + 8);
             vtype = MaterialType | (1 << 30);
         }
     }
@@ -138,7 +142,7 @@ void main ()
     info = EdgeInfo[eidx];
 
     if((info & 1) > 0){ //cross surface
-        float len = EdgePosition[eidx];
+        float len = float(EdgePosition[eidx]) / 255.0;
         if((info & 8) > 0){ //en->st
             vec3 dir0 = EditCenter - world_cell_pos;
             float dist0 = length(dir0);
@@ -147,7 +151,7 @@ void main ()
             float rdist1 = dist1 - EditRadius;
 
             if(rdist0 < 0){
-                EdgeInfo[eidx] = 2 + 8;
+                EdgeInfo[eidx] = uint8_t(2 + 8);
                 vtype = MaterialType | (1 << 30);
             }else if(rdist1 < 0){
                 if((VertInfo[GetVertIdx(level, global_cell_pos + uvec3(0, 1, 0), offset)] & 0x3ff) == MaterialType){
@@ -160,8 +164,8 @@ void main ()
                     // else{ //dist0 = 0
                     //     EdgePosition[eidx] = 0;
                     // }
-                    EdgePosition[eidx] = l / size;
-                    EdgeNormal[eidx] = normalize(vec3(0, l, 0) - dir0);
+                    EdgePosition[eidx] = uint8_t(l / size * 255);
+                    EdgeNormal[eidx] = EncodeNormal(normalize(vec3(0, l, 0) - dir0));
                 }
             }
         }else{ //st->en
@@ -172,7 +176,7 @@ void main ()
             float rdist1 = dist1 - EditRadius;
 
             if(rdist0 < 0){
-                EdgeInfo[eidx] = 2 + 8;
+                EdgeInfo[eidx] = uint8_t(2 + 8);
             }else if(rdist1 < 0){
                 if(vtype == MaterialType){
                     float l = 0;
@@ -184,8 +188,8 @@ void main ()
                     // else{ //dist0 = 0
                     //     EdgePosition[eidx] = 0;
                     // }
-                    EdgePosition[eidx] = 1.0f - l / size;
-                    EdgeNormal[eidx] = normalize(vec3(0, -l, 0) - dir0);
+                    EdgePosition[eidx] = uint8_t((1.0f - l / size) * 255);
+                    EdgeNormal[eidx] = EncodeNormal(normalize(vec3(0, -l, 0) - dir0));
                 }
             }
         }
@@ -208,14 +212,14 @@ void main ()
             else
                 l = p - s;
             
-            EdgePosition[eidx] = l / size;
-            EdgeNormal[eidx] = normalize(vec3(0, l, 0) - dir0);
-            EdgeInfo[eidx] = 3 + (uint(rdist0 >= 0) << 3);
+            EdgePosition[eidx] = uint8_t(l / size * 255);
+            EdgeNormal[eidx] = EncodeNormal(normalize(vec3(0, l, 0) - dir0));
+            EdgeInfo[eidx] = uint8_t(3 + (uint(rdist0 >= 0) << 3));
             
             if(rdist0 < 0)
                 vtype = MaterialType | (1 << 30);
         }else if(rdist0 < 0){
-            EdgeInfo[eidx] = 2 + 8;
+            EdgeInfo[eidx] = uint8_t(2 + 8);
             vtype = MaterialType | (1 << 30);
         }
     }
@@ -225,7 +229,7 @@ void main ()
     info = EdgeInfo[eidx];
 
     if((info & 1) > 0){ //cross surface
-        float len = EdgePosition[eidx];
+        float len = float(EdgePosition[eidx]) / 255.0;
         if((info & 8) > 0){ //en->st
             vec3 dir0 = EditCenter - world_cell_pos;
             float dist0 = length(dir0);
@@ -234,7 +238,7 @@ void main ()
             float rdist1 = dist1 - EditRadius;
 
             if(rdist0 < 0){
-                EdgeInfo[eidx] = 4 + 8;
+                EdgeInfo[eidx] = uint8_t(4 + 8);
                 vtype = MaterialType | (1 << 30);
             }else if(rdist1 < 0){
                 if((VertInfo[GetVertIdx(level, global_cell_pos + uvec3(0, 0, 1), offset)] & 0x3ff) == MaterialType){
@@ -247,8 +251,8 @@ void main ()
                     // else{ //dist0 = 0
                     //     EdgePosition[eidx] = 0;
                     // }
-                    EdgePosition[eidx] = l / size;
-                    EdgeNormal[eidx] = normalize(vec3(0, 0, l) - dir0);
+                    EdgePosition[eidx] = uint8_t(l / size * 255);
+                    EdgeNormal[eidx] = EncodeNormal(normalize(vec3(0, 0, l) - dir0));
                 }
             }
         }else{ //st->en
@@ -259,7 +263,7 @@ void main ()
             float rdist1 = dist1 - EditRadius;
 
             if(rdist0 < 0){
-                EdgeInfo[eidx] = 4 + 8;
+                EdgeInfo[eidx] = uint8_t(4 + 8);
             }else if(rdist1 < 0){
                 if(vtype == MaterialType){
                     float l = 0;
@@ -271,8 +275,8 @@ void main ()
                     // else{ //dist0 = 0
                     //     EdgePosition[eidx] = 0;
                     // }
-                    EdgePosition[eidx] = 1.0f - l / size;
-                    EdgeNormal[eidx] = normalize(vec3(0, 0, -l) - dir0);
+                    EdgePosition[eidx] = uint8_t((1.0f - l / size) * 255);
+                    EdgeNormal[eidx] = EncodeNormal(normalize(vec3(0, 0, -l) - dir0));
                 }
             }
         }
@@ -295,18 +299,18 @@ void main ()
             else
                 l = p - s;
             
-            EdgePosition[eidx] = l / size;
-            EdgeNormal[eidx] = normalize(vec3(0, 0, l) - dir0);
-            EdgeInfo[eidx] = 5 + (uint(rdist0 >= 0) << 3);
+            EdgePosition[eidx] = uint8_t(l / size * 255);
+            EdgeNormal[eidx] = EncodeNormal(normalize(vec3(0, 0, l) - dir0));
+            EdgeInfo[eidx] = uint8_t(5 + (uint(rdist0 >= 0) << 3));
 
             if(rdist0 < 0)
                 vtype = MaterialType | (1 << 30);
         }else if(rdist0 < 0){
-            EdgeInfo[eidx] = 4 + 8;
+            EdgeInfo[eidx] = uint8_t(4 + 8);
             vtype = MaterialType | (1 << 30);
         }
     }
 
     barrier();
-    VertInfo[vidx] = vtype;
+    VertInfo[vidx] = uint16_t(vtype);
 }

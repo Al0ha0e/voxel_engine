@@ -3,8 +3,13 @@
 
 #include <render/compute.hpp>
 #include <render/buffer.hpp>
-#include <render/resource.hpp>
+#include <resource.hpp>
 #include <engine.hpp>
+#include <iostream>
+
+#define SHOW_BUFFERSIZE(buffer)                       \
+    std::cout << #buffer << "\t" << buffer.bufferSize \
+              << "B\t" << buffer.bufferSize / 1024.0 << "K\t" << buffer.bufferSize / (1024 * 1024.0) << "M\n";
 
 namespace vxe_voxel
 {
@@ -42,17 +47,18 @@ namespace vxe_voxel
               surfaceGenerationInfoBuffer(sizeof(int), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
               gridCenter(16 * sizeof(int) * 4, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
               gridSubMin(16 * sizeof(int) * 4, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
-              edgePositionBuffer(totSize3d * sizeof(float), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
-              edgeNormalBuffer(totSize3d * sizeof(float) * 4, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
-              edgeInfoBuffer(totSize3d * sizeof(int), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
-              vertPositionBuffer(totSize * sizeof(float) * 4, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
-              vertNormalBuffer(totSize * sizeof(float) * 4, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
-              vertInfoBuffer(totSize * sizeof(int), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
-              contourBuffer(totSize3d * 3 * 3 * sizeof(int), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
+              edgePositionBuffer(totSize3d * sizeof(char), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
+              edgeNormalBuffer(totSize3d * sizeof(short), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
+              edgeInfoBuffer(totSize3d * sizeof(char), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
+              vertPositionBuffer(totSize * sizeof(char) * 4, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
+              vertNormalBuffer(totSize * sizeof(short), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
+              vertInfoBuffer(totSize * sizeof(short), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT),
+              contourBuffer(totSize3d * 3 * sizeof(int), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT), // * 3 * 2 * 1/2
               levelCounter(sizeof(int64_t), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT)
         {
             initVertexGenerator();
             initSurfaceGenerator();
+            showBufferSize();
         }
 
         void GenerateContour(VkFence fence, VkCommandBuffer commandBuffer)
@@ -72,6 +78,31 @@ namespace vxe_voxel
         std::shared_ptr<vke_render::ComputeShader> surfaceGeneratiorShader;
         std::unique_ptr<vke_render::ComputeTask> surfaceGenerationTask;
         uint64_t surfaceGenerationTaskID;
+
+        void showBufferSize()
+        {
+            std::cout << "---------------------\n";
+            std::cout << "LEVELCNT: " << levelNum << " CHUNKCNT: " << gridSize * levelNum << " VOXELCNT: " << blockSize * gridSize * levelNum << "\n";
+            SHOW_BUFFERSIZE(surfaceGenerationInfoBuffer)
+            SHOW_BUFFERSIZE(gridCenter)
+            SHOW_BUFFERSIZE(gridSubMin)
+            SHOW_BUFFERSIZE(edgePositionBuffer)
+            SHOW_BUFFERSIZE(edgeNormalBuffer)
+            SHOW_BUFFERSIZE(edgeInfoBuffer)
+            SHOW_BUFFERSIZE(vertPositionBuffer)
+            SHOW_BUFFERSIZE(vertNormalBuffer)
+            SHOW_BUFFERSIZE(vertInfoBuffer)
+            SHOW_BUFFERSIZE(contourBuffer)
+            SHOW_BUFFERSIZE(levelCounter)
+            size_t sum = 0;
+            sum += surfaceGenerationInfoBuffer.bufferSize + gridCenter.bufferSize + gridSubMin.bufferSize;
+            sum += edgePositionBuffer.bufferSize + edgeNormalBuffer.bufferSize + edgeInfoBuffer.bufferSize;
+            sum += vertPositionBuffer.bufferSize + vertNormalBuffer.bufferSize + vertInfoBuffer.bufferSize;
+            sum += contourBuffer.bufferSize + levelCounter.bufferSize;
+            std::cout << "TOT: " << sum << " B\t" << sum / 1024.0 << " K\t" << sum / (1024.0 * 1024.0) << " M"
+                      << "\n";
+            std::cout << "---------------------\n";
+        }
 
         void initVertexGenerator()
         {

@@ -1,4 +1,7 @@
 #version 450
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : enable
+#extension GL_EXT_shader_8bit_storage : enable
+#extension GL_EXT_shader_16bit_storage : enable
 #extension GL_ARB_separate_shader_objects: enable
 #extension GL_GOOGLE_include_directive : enable
 #include "terrain_util.h"
@@ -9,27 +12,27 @@ layout(std430, set = 0, binding = 0) buffer GridInfoSSBO {
 } ;
 
 layout (std430, set = 0, binding = 1) buffer EdgePositionSSBO {
-    float EdgePosition[];
+    uint8_t EdgePosition[];
 } ;
 
 layout (std430, set = 0, binding = 2) buffer EdgeNormalSSBO {
-    vec3 EdgeNormal[];
+    u8vec2 EdgeNormal[];
 } ;
 
 layout (std430, set = 0, binding = 3) buffer EdgeInfoSSBO {
-    uint EdgeInfo[];
+    uint8_t EdgeInfo[];
 } ;
 
 layout (std430, set = 0, binding = 4) buffer VertPositionSSBO {
-    vec3 VertPosition[];
+    u8vec4 VertPosition[];
 } ;
 
 layout (std430, set = 0, binding = 5) buffer VertNormalSSBO {
-    vec3 VertNormal[];
+    u8vec2 VertNormal[];
 } ;
 
 layout (std430, set = 0, binding = 6) buffer VertInfoSSBO {
-    uint VertInfo[];
+    uint16_t VertInfo[];
 } ;
 
 void AddEdge(
@@ -45,8 +48,8 @@ void AddEdge(
     uint info = EdgeInfo[eidx];
     if((info & 1) > 0){
         valid = true;
-        position[dim] += EdgePosition[eidx];
-        vec3 normal = EdgeNormal[eidx];
+        position[dim] += float(EdgePosition[eidx]) / 255.0;
+        vec3 normal = DecodeNormal(EdgeNormal[eidx]);
         QEFAdd(normal,position,ATA,ATb,pointaccum);
         normalaccum += normal;
     }
@@ -103,8 +106,8 @@ void main ()
         // VertPosition[vidx] = vec3(0.5f,0.5f,0.5f);
         vec4 pos;
         QEFSolve(ATA, ATb, pointaccum, pos);
-        VertPosition[vidx] = pos.xyz;
-        VertNormal[vidx] =  normalize(normalaccum / pointaccum.w);
+        VertPosition[vidx] = u8vec4(pos.x * 255, pos.y * 255, pos.z * 255, 0);
+        VertNormal[vidx] =  EncodeNormal(normalize(normalaccum / pointaccum.w));
     }
     // VertNormal[vidx] = 0;
 }

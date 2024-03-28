@@ -3,7 +3,7 @@
 
 #include <render/compute.hpp>
 #include <render/buffer.hpp>
-#include <render/resource.hpp>
+#include <resource.hpp>
 #include <voxel/voxel.hpp>
 
 namespace vxe_terrain

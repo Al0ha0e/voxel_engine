@@ -1,4 +1,8 @@
 #version 450
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_int16 : enable
+#extension GL_EXT_shader_8bit_storage : enable
+#extension GL_EXT_shader_16bit_storage : enable
 #extension GL_ARB_separate_shader_objects: enable
 #extension GL_GOOGLE_include_directive : enable
 
@@ -8,10 +12,10 @@ layout(std430, set = 0, binding = 0) buffer GridInfoSSBO {
     ivec3 GridCenter[];
 } ;
 layout (std430, set = 0, binding = 1) buffer EdgeInfoSSBO {
-    uint EdgeInfo[];
+    uint8_t EdgeInfo[];
 } ;
 layout (std430, set = 0, binding = 2) buffer VertInfoSSBO {
-    uint VertInfo[];
+    uint16_t VertInfo[];
 } ;
 
 layout (local_size_x = 16, local_size_y = 16, local_size_z = 4) in;
@@ -28,8 +32,8 @@ void main ()
     uvec3 offset = GridCenter[level] & 3;
     uint eidx = GetEdgeIdx(level, 0, block_pos, cell_pos, offset);
     uint vidx = GetVertIdx(level, block_pos, cell_pos, offset);
-    uint vinfo = VertInfo[vidx];
-    uint vtype = vinfo & 0x3ff;
+    uint16_t vinfo = VertInfo[vidx];
+    uint16_t vtype = vinfo & uint16_t(0x3ff);
 
     const ivec3 dirs[7] = {
         ivec3(0,0,1),
@@ -42,50 +46,50 @@ void main ()
     };
     
     if(all(lessThan(block_pos, uvec3(gridRenderSize)))){
-        uint diff = 0;
-        uint mixedinfo = (vinfo & (1 << 30)) > 0 ? vtype : 0;
+        uint16_t diff = uint16_t(0);
+        uint mixedinfo = (vinfo & (1 << 14)) > 0 ? vtype : 0;
 
 #pragma unroll
         for(int i = 0; i < 7; i++){
             uint vidx1 = GetVertIdx(level, global_cell_pos + dirs[i], offset);
             uint vinfo1 = VertInfo[vidx1];
             uint vtype1 = vinfo1 & 0x3ff;
-            if((vinfo1 & (1 << 30)) > 0){
+            if((vinfo1 & (1 << 14)) > 0){
                 mixedinfo |= vtype1;
                 if(mixedinfo != vtype1){
-                    diff = 1;
+                    diff = uint16_t(1);
                     break;
                 }
             }
         }
         barrier();
-        VertInfo[vidx] = vinfo | (diff << 31);
+        VertInfo[vidx] = vinfo | (diff << 15);
     }
 
     barrier();
 
     if(all(greaterThan(global_cell_pos, uvec3(0)))){
-        uint diff = 0;
+        uint16_t diff = uint16_t(0);
         diff |= VertInfo[GetVertIdx(level, global_cell_pos, offset)];
         diff |= VertInfo[GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z), offset)];
         diff |= VertInfo[GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z-1), offset)];
         diff |= VertInfo[GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y, global_cell_pos.z-1), offset)];
-        EdgeInfo[eidx] |= ((diff >> 31) & 1) << 4;
+        EdgeInfo[eidx] |= uint8_t(((diff >> 15) & 1) << 4);
 
         eidx += blockSize3;
-        diff = 0;
+        diff = uint16_t(0);
         diff |= VertInfo[GetVertIdx(level, global_cell_pos, offset)];
         diff |= VertInfo[GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y, global_cell_pos.z-1), offset)];
         diff |= VertInfo[GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z-1), offset)];
         diff |= VertInfo[GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z), offset)];
-        EdgeInfo[eidx] |= ((diff >> 31) & 1) << 4;
+        EdgeInfo[eidx] |= uint8_t(((diff >> 15) & 1) << 4);
 
         eidx += blockSize3;
-        diff = 0;
+        diff = uint16_t(0);
         diff |= VertInfo[GetVertIdx(level, global_cell_pos, offset)];
         diff |= VertInfo[GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y, global_cell_pos.z), offset)];
         diff |= VertInfo[GetVertIdx(level, uvec3(global_cell_pos.x-1, global_cell_pos.y-1, global_cell_pos.z), offset)];
         diff |= VertInfo[GetVertIdx(level, uvec3(global_cell_pos.x, global_cell_pos.y-1, global_cell_pos.z), offset)];
-        EdgeInfo[eidx] |= ((diff >> 31) & 1) << 4;
+        EdgeInfo[eidx] |= uint8_t(((diff >> 15) & 1) << 4);
     }
 }
