@@ -40,8 +40,9 @@ vec2 Random(vec2 vec)
     vec = vec2(dot(vec, vec2(127.1, 311.7)), dot(vec, vec2(269.5, 183.3)));
     return -1.0 + 2.0 * fract(sin(vec) * 43758.5453123);
 }
-float Perlin(vec2 pos)
+float Perlin(vec2 pos, vec2 off)
 {
+    pos += Random(off);
     vec2 pi = floor(pos);
     vec2 pf = fract(pos);
     vec2 w = pf * pf * (3.0 - 2.0 * pf);
@@ -56,14 +57,14 @@ float Perlin(vec2 pos)
 float GetHeight(vec3 world_cell_pos)
 {
     //return -3.5;
-    return sin(world_cell_pos.x - 48) + sin(world_cell_pos.z - 48) - 5.5;
-    // float ret = 0;
-    // float weights[] = {0.2,0.4,0.4,0.5,0.7,0.8,0.9,1.0,1.0,1.0};
-    // // [unroll]
-    // for(uint level = 1; level <= 10; level++)
-    //     ret += weights[level - 1] * Perlin(world_cell_pos.xz / float(1 << (level + 2))) * float(1 << level);
-    // if(ret == floor(ret)) ret += 0.01;
-    // return ret;
+    // return sin(world_cell_pos.x - 48) + sin(world_cell_pos.z - 48) - 5.5;
+    float ret = 0;
+    float weights[] = {0.2,0.4,0.4,0.5,5.7,0.8,0.9,1.0,1.0,1.0};
+    // [unroll]
+    for(uint level = 1; level <= 10; level++)
+        ret += weights[level - 1] * Perlin(world_cell_pos.xz / float(1 << (level + 2)), vec2(level,level)) * float(1 << level);
+    //if(ret == floor(ret)) ret += 0.01;
+    return ret;
 }
 
 float CalcEdgePosition(vec3 st, uint size, uint dim, float det0)

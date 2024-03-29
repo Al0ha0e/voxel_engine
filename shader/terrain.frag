@@ -1,4 +1,6 @@
 #version 450
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : enable
+#extension GL_EXT_shader_8bit_storage : enable
 #extension GL_ARB_separate_shader_objects: enable
 #extension GL_GOOGLE_include_directive : enable
 #include "terrain_util.h"
